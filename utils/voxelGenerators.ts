@@ -4,157 +4,193 @@
 */
 
 import { VoxelData } from '../types';
-import { COLORS } from './voxelConstants';
+import { COLORS, CONFIG } from './voxelConstants';
 
-// Helper to map voxels
-function setBlock(map: Map<string, VoxelData>, x: number, y: number, z: number, color: number) {
-    const rx = Math.round(x);
-    const ry = Math.round(y);
-    const rz = Math.round(z);
-    const key = `${rx},${ry},${rz}`;
-    map.set(key, { x: rx, y: ry, z: rz, color });
+// Helper to add a point (abstracted as setBlock for compatibility)
+function addPoint(list: VoxelData[], x: number, y: number, z: number, color: number) {
+    // Add some jitter for organic point cloud feel
+    const jitter = 0.05;
+    const jx = (Math.random() - 0.5) * jitter;
+    const jy = (Math.random() - 0.5) * jitter;
+    const jz = (Math.random() - 0.5) * jitter;
+    list.push({ x: x + jx, y: y + jy, z: z + jz, color });
 }
 
-function drawCircle(map: Map<string, VoxelData>, y: number, radius: number, color: number, fill: boolean = false) {
-    const r2 = radius * radius;
-    for (let x = -Math.ceil(radius); x <= Math.ceil(radius); x++) {
-        for (let z = -Math.ceil(radius); z <= Math.ceil(radius); z++) {
-            const d2 = x*x + z*z;
-            if (d2 <= r2 && (fill || d2 >= (radius-1)*(radius-1))) {
-                setBlock(map, x, y, z, color);
+// Geometry Helpers
+function cylinder(list: VoxelData[], yBottom: number, height: number, radius: number, color: number, density: number = 1) {
+    for (let y = yBottom; y < yBottom + height; y += CONFIG.GRID_SIZE) {
+        for (let x = -radius; x <= radius; x += CONFIG.GRID_SIZE) {
+            for (let z = -radius; z <= radius; z += CONFIG.GRID_SIZE) {
+                if (x*x + z*z <= radius*radius) {
+                    if (Math.random() < density) addPoint(list, x, y, z, color);
+                }
             }
         }
     }
 }
 
-function drawCone(map: Map<string, VoxelData>, yStart: number, height: number, rStart: number, rEnd: number, color: number, fill: boolean = false) {
-    for (let h = 0; h < height; h++) {
-        const t = h / height;
-        const r = rStart * (1-t) + rEnd * t;
-        drawCircle(map, yStart + h, r, color, fill);
+function hollowCone(list: VoxelData[], yBottom: number, height: number, rBottom: number, rTop: number, color: number) {
+    const steps = height / (CONFIG.GRID_SIZE * 0.8);
+    for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const y = yBottom + i * CONFIG.GRID_SIZE * 0.8;
+        const r = rBottom * (1 - t) + rTop * t;
+        
+        const circumference = 2 * Math.PI * r;
+        const points = Math.floor(circumference / (CONFIG.GRID_SIZE * 0.5));
+        
+        for (let j = 0; j < points; j++) {
+            const theta = (j / points) * Math.PI * 2;
+            const x = Math.cos(theta) * r;
+            const z = Math.sin(theta) * r;
+            addPoint(list, x, y, z, color);
+        }
     }
 }
 
 export const Generators = {
-    // 1. The Full Setup
+    // 1. Intro / Setup
     V60Setup: (): VoxelData[] => {
-        const map = new Map<string, VoxelData>();
+        const points: VoxelData[] = [];
         
-        // Carafe (Glass)
-        drawCone(map, -10, 8, 5, 2, COLORS.GLASS, false); 
-        // Carafe Handle
-        for(let y=-8; y<-4; y++) { setBlock(map, 6, y, 0, COLORS.STEEL); setBlock(map, 5, y, 0, COLORS.STEEL); }
-
-        // Dripper (Ceramic)
-        drawCone(map, -2, 6, 1.5, 6, COLORS.CERAMIC, false);
-        // Rim
-        drawCircle(map, 4, 6.2, COLORS.CERAMIC, false);
+        // The Cup/Carafe
+        cylinder(points, -8, 4, 3, COLORS.GLASS, 0.3);
         
-        // Filter (Paper) - visible at top
-        drawCone(map, -1.5, 6, 1.4, 5.8, COLORS.PAPER, false);
+        // The V60 Cone
+        hollowCone(points, -3, 5, 1, 4.5, COLORS.CERAMIC);
+        
+        // The Filter Paper (Slightly inside)
+        hollowCone(points, -2.8, 5.2, 0.8, 4.3, COLORS.FILTER);
+        
+        // Coffee Bed (Dry)
+        cylinder(points, -2.5, 2, 1.5, COLORS.COFFEE_DRY, 0.8);
 
-        // Coffee Bed inside
-        drawCone(map, -1, 3, 1.2, 3.5, COLORS.COFFEE_DARK, true);
-
-        return Array.from(map.values());
+        return points;
     },
 
-    // 2. Equipment Showcase (Kettle, Scale)
+    // 2. Equipment
     Equipment: (): VoxelData[] => {
-        const map = new Map<string, VoxelData>();
+        const points: VoxelData[] = [];
+
+        // Digital Scale
+        for(let x=-5; x<=5; x+=CONFIG.GRID_SIZE) 
+            for(let z=-5; z<=5; z+=CONFIG.GRID_SIZE) 
+                addPoint(points, x, -6, z, COLORS.STEEL);
         
-        // Scale (Base)
-        for(let x=-6; x<=6; x++) for(let z=-6; z<=6; z++) setBlock(map, x, -10, z, COLORS.STEEL);
-        // Scale (Display)
-        for(let x=-2; x<=2; x++) setBlock(map, x, -10, 6, COLORS.HIGHLIGHT);
+        // Display on Scale
+        for(let x=-1; x<=1; x+=0.2) addPoint(points, x, -6, 4, COLORS.GAS);
 
-        // Kettle Base
-        const kX = 0;
-        drawCone(map, -9, 6, 5, 4, COLORS.STEEL, false);
-        // Lid
-        drawCircle(map, -3, 4, COLORS.STEEL, true);
-        // Gooseneck Spout
-        for(let i=0; i<10; i++) {
-            const t = i/10;
-            const y = -8 + t * 8;
-            const x = 5 + Math.sin(t * Math.PI) * 4;
-            setBlock(map, x, y, 0, COLORS.STEEL);
+        // Kettle Outline (Gooseneck)
+        const kettleBaseY = -4;
+        cylinder(points, kettleBaseY, 4, 3, COLORS.STEEL, 0.2);
+        
+        // Spout
+        for(let t=0; t<=1; t+=0.02) {
+            const x = 3 + Math.sin(t * Math.PI) * 4;
+            const y = kettleBaseY + t * 5;
+            const z = 0;
+            addPoint(points, x, y, z, COLORS.STEEL);
+            addPoint(points, x, y+0.2, z, COLORS.STEEL); // thickness
         }
-        setBlock(map, 9, 0, 0, COLORS.STEEL); // Tip
-
-        return Array.from(map.values());
+        
+        return points;
     },
 
-    // 3. The Grind (Magnified View)
+    // 3. Grind Size Comparison
     GrindSize: (): VoxelData[] => {
-        const map = new Map<string, VoxelData>();
-        
-        // Label: Fine (Left)
-        for(let x=-12; x<-4; x+=0.5) for(let z=-4; z<4; z+=0.5) for(let y=-5; y<0; y+=0.5) {
-            if(Math.random() > 0.3) setBlock(map, x, y, z, COLORS.COFFEE_DARK);
-        }
+        const points: VoxelData[] = [];
 
-        // Label: Medium (Center) - Ideal
-        for(let x=-2; x<2; x+=1.2) for(let z=-4; z<4; z+=1.2) for(let y=-5; y<2; y+=1.2) {
-            // Clumps
-            setBlock(map, x, y, z, COLORS.COFFEE_MED);
-            setBlock(map, x+0.5, y, z, COLORS.COFFEE_MED);
-            setBlock(map, x, y+0.5, z, COLORS.COFFEE_MED);
-        }
-        
-        // Label: Coarse (Right)
-        for(let x=6; x<14; x+=2) for(let z=-4; z<4; z+=2) for(let y=-5; y<0; y+=2) {
-             // Big chunks
-            for(let dx=0; dx<1.5; dx+=0.5) for(let dy=0; dy<1.5; dy+=0.5) for(let dz=0; dz<1.5; dz+=0.5)
-                setBlock(map, x+dx, y+dy, z+dz, COLORS.COFFEE_LIGHT);
-        }
+        // Helper for a pile
+        const makePile = (offsetX: number, spread: number, color: number, labelColor: number) => {
+            // Label/Indicator
+            addPoint(points, offsetX, 2, 0, labelColor);
+            
+            for(let i=0; i<400; i++) {
+                // Cone distribution
+                const r = Math.random() * 2.5;
+                const theta = Math.random() * Math.PI * 2;
+                const y = (2.5 - r) * (Math.random() * 0.5 + 0.5); // Peak at center
+                
+                // Spacing based on "spread" (coarseness)
+                const x = offsetX + Math.cos(theta) * r;
+                const z = Math.sin(theta) * r;
+                
+                // Only add if it aligns with a "grid" defined by spread to simulate particle size
+                // We simulate this by quantizing coordinates roughly
+                const q = spread;
+                const qx = Math.round(x/q)*q;
+                const qy = Math.round(y/q)*q;
+                const qz = Math.round(z/q)*q;
+                
+                addPoint(points, qx, qy - 4, qz, color);
+            }
+        };
 
-        return Array.from(map.values());
+        makePile(-6, 0.2, COLORS.COFFEE_DRY, COLORS.ERROR); // Fine (Dense)
+        makePile(0, 0.5, COLORS.COFFEE_DRY, COLORS.OK);    // Medium (Goldilocks)
+        makePile(6, 0.9, COLORS.COFFEE_LIGHT, COLORS.ERROR); // Coarse (Loose)
+
+        return points;
     },
 
-    // 4. The Bloom (Chemistry)
+    // 4. Bloom
     BloomPhase: (): VoxelData[] => {
-        const map = new Map<string, VoxelData>();
+        const points: VoxelData[] = [];
+
+        // Saturated Bed
+        cylinder(points, -4, 3, 2.5, COLORS.COFFEE_DARK, 0.9);
         
-        // Bed
-        drawCone(map, -5, 5, 2, 6, COLORS.COFFEE_DARK, true);
+        // Rising CO2 Bubbles
+        for(let i=0; i<150; i++) {
+            const theta = Math.random() * Math.PI * 2;
+            const r = Math.random() * 2;
+            const y = -1 + Math.random() * 5; // Rising up
+            addPoint(points, Math.cos(theta)*r, y, Math.sin(theta)*r, COLORS.GAS);
+        }
         
-        // Water hitting top
-        drawCircle(map, 0, 5, COLORS.WATER_DEEP, true);
-        
-        // Bubbles (CO2) rising
-        for(let i=0; i<50; i++) {
-            const x = (Math.random() - 0.5) * 8;
-            const z = (Math.random() - 0.5) * 8;
-            const y = Math.random() * 8 + 1;
-            setBlock(map, x, y, z, COLORS.GAS);
+        // Water layer on top
+        for(let i=0; i<100; i++) {
+             const theta = Math.random() * Math.PI * 2;
+             const r = Math.random() * 2.2;
+             addPoint(points, Math.cos(theta)*r, -0.8, Math.sin(theta)*r, COLORS.WATER_POOL);
         }
 
-        return Array.from(map.values());
+        return points;
     },
 
-    // 5. Spiral Pour (Technique)
+    // 5. Spiral Pour
     SpiralPour: (): VoxelData[] => {
-        const map = new Map<string, VoxelData>();
+        const points: VoxelData[] = [];
 
-        // Filter Outline
-        drawCone(map, -5, 8, 2, 7, COLORS.PAPER, false);
+        // Filter Shape
+        hollowCone(points, -4, 6, 1, 5, COLORS.FILTER);
 
-        // Water Stream (Spiral)
-        let theta = 0;
-        for (let y = -2; y < 10; y += 0.2) {
-            const r = y * 0.4; // Expanding spiral
-            theta += 0.5;
+        // Coffee Slurry
+        cylinder(points, -3.5, 3, 3, COLORS.COFFEE_DARK, 0.5);
+
+        // The Water Spiral path
+        let angle = 0;
+        const height = 8; // Spout height
+        
+        // Draw the stream from kettle to bed
+        for(let y=0; y<height; y+=0.1) {
+            addPoint(points, 0.5, y, 0.5, COLORS.WATER_STREAM);
+        }
+
+        // Draw the spiral pattern on the bed surface
+        for(let t=0; t<20; t+=0.1) {
+            const r = t * 0.15; // Spiral out
+            const theta = t;
             const x = Math.cos(theta) * r;
             const z = Math.sin(theta) * r;
-            setBlock(map, x, y, z, COLORS.WATER_DEEP);
-            // Add thickness
-            setBlock(map, x, y-0.5, z, COLORS.WATER_DEEP);
+            
+            // Water impact points
+            addPoint(points, x, 0, z, COLORS.WATER_STREAM);
+            
+            // Agitation (particles moving away)
+            addPoint(points, x + (Math.random()-0.5), -0.5, z + (Math.random()-0.5), COLORS.COFFEE_LIGHT);
         }
-        
-        // Kettle Tip
-        setBlock(map, 0, 12, 0, COLORS.STEEL);
-        
-        return Array.from(map.values());
+
+        return points;
     }
 };

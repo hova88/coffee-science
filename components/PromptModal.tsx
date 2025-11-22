@@ -4,11 +4,11 @@
 */
 
 import React, { useState, useEffect } from 'react';
-import { Sparkles, X, Loader2, Search } from 'lucide-react';
+import { Sparkles, X, Loader2, Search, FlaskConical } from 'lucide-react';
 
 interface PromptModalProps {
   isOpen: boolean;
-  mode: 'create' | 'morph'; // Kept for interface compatibility but mostly unused in new flow
+  mode: 'create' | 'morph';
   onClose: () => void;
   onSubmit: (prompt: string) => Promise<void>;
 }
@@ -43,20 +43,20 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 font-sans">
       <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg flex flex-col border border-slate-700 animate-in fade-in zoom-in duration-200">
         
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-indigo-900/50 text-indigo-400">
-                <Search size={20} strokeWidth={2.5} />
+            <div className="p-2 rounded-lg bg-indigo-900/30 text-indigo-400">
+                <FlaskConical size={24} strokeWidth={2} />
             </div>
             <div>
-                <h2 className="text-lg font-bold text-slate-100">
-                    Ask the AI Tutor
+                <h2 className="text-xl font-bold text-slate-100">
+                    Ask the AI Barista
                 </h2>
                 <p className="text-xs font-medium text-indigo-400 uppercase tracking-wide">
-                    Generate a 3D Explanation
+                    Simulate a Concept
                 </p>
             </div>
           </div>
@@ -71,10 +71,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
 
         <div className="p-6">
           <form onSubmit={handleSubmit}>
+            <label className="block text-sm text-slate-400 mb-2">What scientific phenomenon do you want to visualize?</label>
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., Show me what happens during 'channeling'..." 
+              placeholder="e.g., Show me how 'Channeling' creates uneven extraction..." 
               disabled={isLoading}
               className="w-full h-32 resize-none bg-slate-950 border border-slate-700 rounded-xl p-4 font-medium text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-slate-600 mb-4"
               autoFocus
@@ -94,12 +95,12 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
                 {isLoading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    Analyzing Physics...
+                    Generating Physics...
                   </>
                 ) : (
                   <>
                     <Sparkles size={16} fill="currentColor" />
-                    Visualize Concept
+                    Run Simulation
                   </>
                 )}
               </button>
