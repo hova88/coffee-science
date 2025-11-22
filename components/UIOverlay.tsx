@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { SimulationParams, ViewMode, FlavorProfile } from '../types';
 import { Sparkles, Droplets, Layers, Wind, X, Info, Scale, Thermometer, Waves, Move3d, ArrowRight } from 'lucide-react';
+import { FlavorRadar } from './FlavorRadar';
 
 interface UIOverlayProps {
   simParams: SimulationParams;
@@ -129,28 +130,35 @@ const SidePanel: React.FC<{
   </div>
 );
 
-// Minimalist Focus Point
+// Minimalist Focus Point (Menu Item)
 const SpatialFocusPoint: React.FC<{
   label: string;
-  className: string;
+  subLabel?: string;
   onClick: () => void;
-}> = ({ label, className, onClick }) => (
+}> = ({ label, subLabel, onClick }) => (
     <button 
         onClick={(e) => { e.stopPropagation(); onClick(); }}
-        className={`absolute group flex items-center justify-center w-12 h-12 transition-all duration-500 pointer-events-auto ${className}`}
+        className="group relative flex items-center justify-end w-64 h-12 transition-all duration-500 pointer-events-auto"
     >
-        {/* The Dot */}
-        <div className="relative flex items-center justify-center w-4 h-4 cursor-pointer">
-            <div className="absolute w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_15px_white] z-10" />
-            <div className="absolute w-full h-full rounded-full border border-white/20 scale-0 group-hover:scale-100 transition-transform duration-500" />
-            <div className="absolute w-full h-full rounded-full border border-white/10 animate-ping opacity-20" />
-        </div>
-
-        {/* The Reveal Label */}
-        <div className="absolute left-8 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-[-10px] group-hover:translate-x-0 pointer-events-none">
-            <span className="text-[10px] font-medium tracking-[0.2em] text-white/80 uppercase whitespace-nowrap bg-black/50 px-2 py-1 rounded backdrop-blur-sm border border-white/5">
+        {/* Text Hint */}
+        <div className="flex flex-col items-end mr-6 transition-all duration-300 group-hover:-translate-x-2">
+            <span className="text-sm font-light tracking-[0.2em] text-white uppercase">
                 {label}
             </span>
+             {subLabel && (
+                 <span className="text-[10px] text-gray-500 tracking-wider font-mono mt-0.5 group-hover:text-indigo-400 transition-colors">
+                    {subLabel}
+                 </span>
+             )}
+        </div>
+
+        {/* The Dot Visual */}
+        <div className="relative flex items-center justify-center w-4 h-4">
+            {/* Connector Line */}
+            <div className="absolute right-full w-4 h-[1px] bg-white/20 mr-2 scale-x-0 group-hover:scale-x-100 origin-right transition-transform duration-300" />
+            
+            <div className="absolute w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_15px_white] z-10" />
+            <div className="absolute w-full h-full rounded-full border border-white/20 scale-50 group-hover:scale-150 transition-transform duration-500" />
         </div>
     </button>
 );
@@ -181,40 +189,35 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   return (
     <div className="absolute inset-0 pointer-events-none select-none font-sans text-gray-100">
       
-      {/* NOTE: We removed the blocking backdrop to allow 3D rotation while panel is open */}
-
       {/* 1. Branding */}
-      <div className="absolute top-8 left-8 pointer-events-auto flex flex-col gap-1 opacity-70 hover:opacity-100 transition-opacity">
+      <div className="absolute top-8 left-8 pointer-events-auto flex flex-col gap-1 opacity-70 hover:opacity-100 transition-opacity z-50">
           <h1 className="text-sm tracking-[0.2em] font-semibold text-white">POUR OVER</h1>
           <p className="text-[10px] text-gray-500 tracking-widest">VISUAL GUIDE</p>
       </div>
 
-      {/* 2. SPATIAL INTERACTION LAYER */}
-      <div className={`absolute inset-0 transition-opacity duration-500 ${activeModule ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
+      {/* 2. MODULE SELECTOR (RIGHT SIDE) */}
+      <div className={`absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-8 pr-12 z-40 transition-all duration-500 ${activeModule ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-100 translate-x-0'}`}>
             
-            {/* Top: The Water */}
             <SpatialFocusPoint 
                 label="The Water" 
-                className="top-[25%] left-1/2 -translate-x-1/2 -translate-y-1/2"
+                subLabel="Temp & Ratio"
                 onClick={() => setActiveModule('WATER')}
             />
 
-            {/* Left: The Grind */}
             <SpatialFocusPoint 
                 label="The Grind" 
-                className="bottom-[35%] left-[25%]"
+                subLabel="Particle Size"
                 onClick={() => setActiveModule('GRIND')}
             />
 
-            {/* Right: The Pour */}
             <SpatialFocusPoint 
                 label="The Pour" 
-                className="bottom-[35%] right-[25%]"
+                subLabel="Flow & Agitation"
                 onClick={() => setActiveModule('POUR')}
             />
       </div>
 
-      {/* 3. SIDE PANELS (Content updated from PDF) */}
+      {/* 3. SIDE PANELS */}
       {activeModule === 'GRIND' && (
         <SidePanel 
             title="The Grind"
@@ -350,11 +353,13 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* 4. BOTTOM TIMELINE (Always Visible) */}
       <div className="absolute bottom-0 left-0 w-full pb-8 pt-24 px-8 md:px-12 pointer-events-auto bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
              
-             {/* Heads Up Data */}
-             <div className="flex justify-between items-end mb-6">
-                 <div className="flex items-center gap-4">
+             {/* Heads Up Data Dashboard */}
+             <div className="flex flex-col md:flex-row justify-between items-end mb-6 gap-6 md:gap-0">
+                 
+                 {/* Left: AI Controls */}
+                 <div className="flex items-center gap-4 mb-2 md:mb-0">
                      <button onClick={onAskAI} className="group flex items-center gap-2 text-[10px] font-bold tracking-widest text-amber-100/50 hover:text-amber-100 transition-colors">
                          <div className="p-1.5 rounded-full border border-amber-100/30 group-hover:border-amber-100/80">
                             <Sparkles size={10}/>
@@ -363,14 +368,24 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                      </button>
                  </div>
 
-                 <div className="flex gap-8 text-right border-l border-white/10 pl-8">
-                     <div>
-                        <span className="block text-[9px] text-gray-500 tracking-widest mb-1">TDS (STRENGTH)</span>
-                        <span className="text-lg font-light text-white">{flavorProfile.tds.toFixed(2)}%</span>
+                 {/* Right: Dashboard (Radar + Stats) */}
+                 <div className="flex items-center gap-8 md:gap-12">
+                     
+                     {/* The Radar Chart */}
+                     <div className="hidden md:block relative">
+                        <FlavorRadar data={flavorProfile} size={120} />
                      </div>
-                     <div>
-                        <span className="block text-[9px] text-gray-500 tracking-widest mb-1">EXTRACTION</span>
-                        <span className="text-lg font-light text-amber-400">{flavorProfile.extractionYield.toFixed(1)}%</span>
+
+                     {/* Numeric Stats */}
+                     <div className="flex gap-8 text-right border-l border-white/10 pl-8">
+                         <div>
+                            <span className="block text-[9px] text-gray-500 tracking-widest mb-1">TDS (STRENGTH)</span>
+                            <span className="text-2xl font-light text-white tracking-tight">{flavorProfile.tds.toFixed(2)}%</span>
+                         </div>
+                         <div>
+                            <span className="block text-[9px] text-gray-500 tracking-widest mb-1">EXTRACTION</span>
+                            <span className="text-2xl font-light text-amber-400 tracking-tight">{flavorProfile.extractionYield.toFixed(1)}%</span>
+                         </div>
                      </div>
                  </div>
              </div>
@@ -404,17 +419,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       </div>
 
-      {/* 5. VIEW MODE TOGGLES */}
-      <div className="absolute top-1/2 right-6 -translate-y-1/2 flex flex-col gap-4 pointer-events-auto">
+      {/* 5. VIEW MODE TOGGLES (MOVED TO LEFT) */}
+      <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col gap-4 pointer-events-auto z-40">
            {[
                { id: 'REALITY', icon: <Layers size={16} />, label: 'Reality' },
                { id: 'SATURATION', icon: <Droplets size={16} />, label: 'Saturation' },
                { id: 'FLOW_VELOCITY', icon: <Wind size={16} />, label: 'Velocity' }
            ].map((mode) => (
-               <div key={mode.id} className="group relative flex items-center justify-end">
-                    <span className="absolute right-12 text-[9px] font-bold tracking-wider text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/80 px-2 py-1 rounded border border-white/10 whitespace-nowrap pointer-events-none">
-                        {mode.label}
-                    </span>
+               <div key={mode.id} className="group relative flex items-center">
                    <button
                        onClick={() => onSimParamChange({ viewMode: mode.id as ViewMode })}
                        className={`
@@ -426,6 +438,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                    >
                        {mode.icon}
                    </button>
+                   {/* Label appears to the right */}
+                   <span className="absolute left-14 text-[9px] font-bold tracking-wider text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/80 px-2 py-1 rounded border border-white/10 whitespace-nowrap pointer-events-none">
+                        {mode.label}
+                    </span>
                </div>
            ))}
       </div>
