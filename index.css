@@ -1,0 +1,106 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at center, #2a2a2a 0%, #050505 100%); /* Studio Grey Light */
+  color: #f5f5f7;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/5 backdrop-blur-2xl border border-white/20 shadow-2xl shadow-black/50;
+  }
+  
+  .glass-button {
+    @apply bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/10 transition-all duration-300 active:scale-95;
+  }
+  
+  .text-glow {
+    text-shadow: 0 0 30px rgba(255,255,255,0.4);
+  }
+
+  .hotspot-pulse {
+    animation: pulse-ring 3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  }
+  
+  .fade-in-slow {
+    animation: fadeIn 1.0s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  .slide-in-right {
+    animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  /* Custom Scrollbar for SidePanel */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.05);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 10px;
+  }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.5; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.5); }
+  50% { opacity: 0.3; }
+  100% { transform: scale(2.0); opacity: 0; box-shadow: 0 0 0 20px rgba(255, 255, 255, 0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Apple-style Slider - Enhanced for usability */
+input[type=range] {
+  -webkit-appearance: none;
+  background: transparent;
+  height: 20px; /* Larger hit area */
+  display: flex;
+  align-items: center;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: grab;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  margin-top: -9px; /* Align center */
+  transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+input[type=range]::-webkit-slider-thumb:active {
+  transform: scale(1.3);
+  cursor: grabbing;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 2px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+}
+
+input[type=range]:focus {
+  outline: none;
+}

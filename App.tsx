@@ -3,261 +3,161 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { VoxelEngine } from './services/VoxelEngine';
 import { UIOverlay } from './components/UIOverlay';
 import { PromptModal } from './components/PromptModal';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { Generators } from './utils/voxelGenerators';
-import { AppState, VoxelData } from './types';
-import { GoogleGenAI, Type } from "@google/genai";
+import { ParametricGenerators } from './utils/voxelGenerators';
+import { AppState, SimulationParams, ViewMode, FlavorProfile } from './types';
+import { GoogleGenAI } from '@google/genai';
 
-export interface CoffeeChapter {
-    id: string;
-    title: string;
-    text: string;
-    generator: keyof typeof Generators | 'AI';
-    data?: VoxelData[];
-}
-
-// Content derived from the provided "About Coffee" PDF
-const CHAPTERS: CoffeeChapter[] = [
-  {
-    id: 'intro',
-    title: 'What is Pour-Over?',
-    text: "It is a straightforward manual method: you hand-pour water over coffee grounds in a filter. This extracts flavors as it passes through into a carafe. It offers control over the brewing process and brings out distinctive flavors, especially for single-origin beans.",
-    generator: 'V60Setup'
-  },
-  {
-    id: 'equipment',
-    title: 'Essential Equipment',
-    text: "Precision is key. You need a Brewer (conical or flat), Filters (paper/metal/cloth), a Kettle (gooseneck for control), a Scale for ratio accuracy (1:16), and a Burr Grinder for consistent particle size.",
-    generator: 'Equipment'
-  },
-  {
-    id: 'grind',
-    title: 'Grind Size & Taste',
-    text: "Medium grind is ideal (center). If too fine (left), coffee tastes bitter/over-extracted. If too coarse (right), it tastes sour/under-extracted. Burr grinders preserve oils better than blade grinders.",
-    generator: 'GrindSize'
-  },
-  {
-    id: 'bloom',
-    title: 'The Bloom Phase',
-    text: "Pouring double the weight of coffee in water causes a 'Bloom'. You will see bubbles as CO2 gas escapes from the beans. This degassing is crucial for allowing water to saturate the grounds evenly for the main brew.",
-    generator: 'BloomPhase'
-  },
-  {
-    id: 'pour',
-    title: 'Pulse Pouring & Agitation',
-    text: "Pour slowly in a spiral starting from the center. 'Pulse pouring' (multiple pours) prevents channeling. 'Agitation' (gentle stirring) ensures all grounds contact water. Total brew time should be 2-4 minutes.",
-    generator: 'SpiralPour'
-  }
-];
-
-const App: React.FC = () => {
+export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<VoxelEngine | null>(null);
   
   const [appState, setAppState] = useState<AppState>(AppState.STABLE);
-  const [voxelCount, setVoxelCount] = useState<number>(0);
-  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
-  
-  const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isAutoRotate, setIsAutoRotate] = useState(true);
+  const [voxelCount, setVoxelCount] = useState(0);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
 
-  const [aiChapter, setAiChapter] = useState<CoffeeChapter | null>(null);
+  // --- SCIENTIFIC STATE ---
+  const [simParams, setSimParams] = useState<SimulationParams>({
+    grindSize: 0.5,    // Medium
+    temperature: 0.6,  // ~92C
+    ratio: 0.5,        // 1:15
+    agitation: 0.3,    // Gentle pour
+    time: 0.1,         // Start of brew
+    shape: 'CONE',
+    viewMode: 'REALITY'
+  });
 
+  // --- FLAVOR CALCULATION ENGINE ---
+  const flavorProfile = useMemo<FlavorProfile>(() => {
+      // 1. Calculate Extraction Potential based on Grind & Temp
+      const surfaceArea = 1 + (1 - simParams.grindSize) * 2; // Finer = More Area
+      const solvency = 0.8 + (simParams.temperature * 0.4); // Hotter = More Soluble
+      const extractionRate = surfaceArea * solvency * (1 + simParams.agitation * 0.2);
+
+      // 2. Calculate Total Extraction based on Time
+      // Time is 0.0 - 1.0. Let's map to an extraction curve.
+      // Curve: Acids extract fast, Sugars medium, Bitter slow.
+      const t = simParams.time * extractionRate; 
+
+      // Extraction Curves (0 to 1)
+      const acidExtracted = Math.min(1, t * 4); // Fast
+      const sugarExtracted = Math.max(0, Math.min(1, (t - 0.1) * 3)); // Delayed
+      const bitterExtracted = Math.max(0, Math.min(1, (t - 0.4) * 2)); // Late
+
+      // 3. Concentration (TDS) based on Ratio
+      // Lower ratio (1:10) = Higher Concentration. 
+      const concentrationFactor = 1.0 + (1.0 - simParams.ratio) * 0.5;
+
+      const tds = (acidExtracted * 0.3 + sugarExtracted * 0.5 + bitterExtracted * 0.4) * concentrationFactor * 1.5;
+      const yieldVal = tds * (15 + simParams.ratio * 5); // Rough EY calc
+
+      return {
+          acidity: acidExtracted * (1.0 - bitterExtracted * 0.5), // Masked by bitterness
+          sweetness: sugarExtracted * (1.0 - bitterExtracted * 0.3),
+          bitterness: bitterExtracted,
+          body: (tds * 0.8) + (simParams.grindSize < 0.3 ? 0.2 : 0), // Fines add body
+          clarity: 1.0 - (simParams.grindSize < 0.2 ? 0.4 : 0),
+          extractionYield: yieldVal * 10, // Scale to %
+          tds: tds
+      };
+  }, [simParams]);
+
+  // --- INIT ENGINE ---
   useEffect(() => {
     if (!containerRef.current) return;
-
+    
+    // Create Engine
     const engine = new VoxelEngine(
-      containerRef.current,
-      (newState) => setAppState(newState),
-      (count) => setVoxelCount(count)
+        containerRef.current,
+        (state) => setAppState(state),
+        (count) => setVoxelCount(count)
     );
     engineRef.current = engine;
 
-    loadChapter(0);
+    // Welcome Delay
+    setTimeout(() => setShowWelcome(false), 2500);
 
     const handleResize = () => engine.handleResize();
     window.addEventListener('resize', handleResize);
-    
-    const timer = setTimeout(() => setShowWelcome(false), 4000);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      clearTimeout(timer);
       engine.cleanup();
     };
   }, []);
 
-  const loadChapter = (index: number) => {
+  // --- GENERATION LOOP ---
+  useEffect(() => {
       if (!engineRef.current) return;
+
+      // Generate Point Cloud based on current scientific params
+      const voxels = ParametricGenerators.V60Simulation(simParams);
       
-      const chapter = (index === -1 && aiChapter) ? aiChapter : CHAPTERS[index];
+      engineRef.current.transitionTo(voxels, true);
+
+  }, [simParams]);
+
+  // --- AI HANDLER ---
+  const handleAIPrompt = async (prompt: string) => {
+      // Logic to parse natural language into SimParams using Gemini would go here.
+      // For now, we simulate a response.
+      console.log("Analyzing prompt:", prompt);
       
-      if (chapter.generator !== 'AI') {
-          // @ts-ignore
-          const genFunc = Generators[chapter.generator];
-          if (genFunc) {
-              engineRef.current.transitionTo(genFunc());
-          }
-      } else if (aiChapter && aiChapter.data) {
-          // @ts-ignore
-          engineRef.current.transitionTo(aiChapter.data);
-      }
-      
-      setCurrentChapterIndex(index);
-  };
-
-  const handleNext = () => {
-      const next = Math.min(currentChapterIndex + 1, CHAPTERS.length - 1);
-      if (next !== currentChapterIndex) loadChapter(next);
-  };
-
-  const handlePrev = () => {
-      const prev = Math.max(currentChapterIndex - 1, 0);
-      if (prev !== currentChapterIndex) loadChapter(prev);
-  };
-
-  const handleAskAI = async (prompt: string) => {
-    if (!process.env.API_KEY) return;
-
-    setIsGenerating(true);
-    setIsPromptModalOpen(false);
-
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const model = 'gemini-3-pro-preview';
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Act as a coffee physics engine. 
+        Convert this user request into a JSON object with these keys (values 0.0-1.0): 
+        grindSize, temperature, ratio, agitation, time. 
         
-        const systemContext = `
-            CONTEXT: You are a Scientific Data Visualizer expert in COFFEE PHYSICS.
-            Your goal is to explain a concept using a 3D Point Cloud visualization.
-            
-            COLORS (Hex Integers):
-            - GROUNDS: 0x3e2723
-            - WATER: 0x29b6f6
-            - GAS/ENERGY: 0xffeb3b
-            - FILTER: 0xffecb3
-            
-            OUTPUT:
-            Return a JSON object with:
-            1. "text": A concise, scientific explanation (max 2 sentences).
-            2. "voxels": An array of {x,y,z,color} objects.
-            
-            SCENE CONSTRAINTS:
-            - Center at 0,0,0.
-            - Max 1200 points (for performance).
-            - Use float coordinates for organic point cloud look.
-            - Visualize abstract concepts like 'Turbulence', 'Extraction', 'Heat'.
-        `;
+        Request: "${prompt}"`,
+      });
 
-        const response = await ai.models.generateContent({
-            model,
-            contents: `${systemContext}\n\nUSER QUERY: "${prompt}"`,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        text: { type: Type.STRING },
-                        voxels: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    x: { type: Type.NUMBER },
-                                    y: { type: Type.NUMBER },
-                                    z: { type: Type.NUMBER },
-                                    color: { type: Type.STRING }
-                                },
-                                required: ["x", "y", "z", "color"]
-                            }
-                        }
-                    },
-                    required: ["text", "voxels"]
-                }
-            }
-        });
-
-        if (response.text) {
-            const data = JSON.parse(response.text);
-            
-            const voxelData: VoxelData[] = data.voxels.map((v: any) => {
-                let colorStr = v.color;
-                if (typeof colorStr === 'string' && colorStr.startsWith('#')) colorStr = colorStr.substring(1);
-                const colorInt = parseInt(colorStr, 16);
-                return {
-                    x: v.x, y: v.y, z: v.z,
-                    color: isNaN(colorInt) ? 0xFFFFFF : colorInt
-                };
-            });
-
-            const newChapter: CoffeeChapter = {
-                id: 'ai-generated',
-                title: `Analysis: ${prompt}`,
-                text: data.text,
-                generator: 'AI',
-                data: voxelData
-            };
-
-            setAiChapter(newChapter);
-            if (engineRef.current) {
-                engineRef.current.transitionTo(voxelData);
-            }
-            setCurrentChapterIndex(-1); 
-        }
-    } catch (err) {
-        console.error("AI Generation failed", err);
-        alert("Physics simulation failed. Please try again.");
-    } finally {
-        setIsGenerating(false);
-    }
+      try {
+          const text = response.text || "{}";
+          // Basic cleanup to find JSON block
+          const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+          const params = JSON.parse(jsonStr);
+          
+          setSimParams(prev => ({
+              ...prev,
+              ...params
+          }));
+          setIsPromptOpen(false);
+      } catch (e) {
+          console.error("AI Parse Error", e);
+      }
   };
-
-  const effectiveChapters = currentChapterIndex === -1 && aiChapter 
-    ? [...CHAPTERS, aiChapter] 
-    : CHAPTERS;
-  const effectiveIndex = currentChapterIndex === -1 ? CHAPTERS.length : currentChapterIndex;
 
   return (
-    <div className="relative w-full h-screen bg-[#0f172a] overflow-hidden font-sans">
-      <div ref={containerRef} className="absolute inset-0 z-0" />
+    <div className="relative w-full h-screen overflow-hidden bg-black text-slate-200 font-sans selection:bg-indigo-500/30">
       
+      {/* 3D Viewport */}
+      <div ref={containerRef} className="absolute inset-0 z-0" />
+
+      {/* UI Layer */}
       <UIOverlay 
-        voxelCount={voxelCount}
-        appState={appState}
-        currentChapterIndex={effectiveIndex}
-        chapters={effectiveChapters}
-        isAutoRotate={isAutoRotate}
-        isGenerating={isGenerating}
-        onNextChapter={() => {
-            if (currentChapterIndex === -1) loadChapter(0); 
-            else handleNext();
-        }}
-        onPrevChapter={() => {
-            if (currentChapterIndex === -1) loadChapter(CHAPTERS.length - 1);
-            else handlePrev();
-        }}
-        onToggleRotation={() => {
-            setIsAutoRotate(!isAutoRotate);
-            engineRef.current?.setAutoRotate(!isAutoRotate);
-        }}
-        onAskAI={() => setIsPromptModalOpen(true)}
+        simParams={simParams}
+        flavorProfile={flavorProfile}
+        isGenerating={appState !== AppState.STABLE}
+        onSimParamChange={(p) => setSimParams(prev => ({...prev, ...p}))}
+        onAskAI={() => setIsPromptOpen(true)}
+      />
+
+      {/* Modals */}
+      <PromptModal 
+        isOpen={isPromptOpen}
+        mode="create"
+        onClose={() => setIsPromptOpen(false)}
+        onSubmit={handleAIPrompt}
       />
 
       <WelcomeScreen visible={showWelcome} />
-
-      <PromptModal
-        isOpen={isPromptModalOpen}
-        mode="create"
-        onClose={() => setIsPromptModalOpen(false)}
-        onSubmit={handleAskAI}
-      />
     </div>
   );
-};
-
-export default App;
+}

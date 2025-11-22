@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -5,6 +6,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
 import { AppState, VoxelData } from '../types';
 import { CONFIG } from '../utils/voxelConstants';
 
@@ -14,11 +18,17 @@ export class VoxelEngine {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private controls: OrbitControls;
+  
+  // Post Processing
+  private composer: EffectComposer;
+  
+  // Instance Mesh for Particles
   private instanceMesh: THREE.InstancedMesh | null = null;
+  private randomRotations: Float32Array = new Float32Array(0);
+  
   private dummy = new THREE.Object3D();
   
-  private voxels: VoxelData[] = []; // Current state
-  private targetVoxels: VoxelData[] = []; // Target for morphing
+  private targetVoxels: VoxelData[] = []; 
   private morphProgress: number = 1;
   
   private state: AppState = AppState.STABLE;
@@ -38,63 +48,86 @@ export class VoxelEngine {
 
     // Init Three.js
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(CONFIG.BG_COLOR);
-    this.scene.fog = new THREE.FogExp2(CONFIG.BG_COLOR, 0.02);
+    // Transparent background to let CSS Gradient show through
+    this.scene.background = null; 
+    
+    // Very subtle fog to blend distant particles
+    this.scene.fog = new THREE.FogExp2(0x111111, 0.04);
 
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    this.camera.position.set(15, 10, 15);
+    this.camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+    this.camera.position.set(0, 3, 9); 
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.2;
+    
     container.appendChild(this.renderer.domElement);
+
+    // --- POST PROCESSING (ELEGANT GLOW) ---
+    const renderScene = new RenderPass(this.scene, this.camera);
+    
+    const bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight), 
+        0.4,  // Soft strength
+        0.5,  // Radius
+        0.8   // High threshold (only bright reflections glow)
+    );
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(renderScene);
+    this.composer.addPass(bloomPass);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.autoRotate = true;
-    this.controls.autoRotateSpeed = 0.5;
-    this.controls.target.set(0, -2, 0);
+    this.controls.dampingFactor = 0.05;
+    this.controls.enablePan = false;
+    this.controls.minDistance = 4;
+    this.controls.maxDistance = 16;
+    this.controls.maxPolarAngle = Math.PI / 1.8; 
 
-    // Lighting for points
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    // --- STUDIO LIGHTING (Softbox Style) ---
+    
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(10, 20, 10);
-    this.scene.add(dirLight);
+    // Key Light (Soft White)
+    const keyLight = new THREE.RectAreaLight(0xffffff, 3.0, 10, 10);
+    keyLight.position.set(5, 5, 5);
+    keyLight.lookAt(0, 0, 0);
+    this.scene.add(keyLight);
     
-    const blueLight = new THREE.PointLight(0x0088ff, 0.5, 50);
-    blueLight.position.set(-10, 5, -10);
-    this.scene.add(blueLight);
+    // Rim Light (Cool Cyan Accent) - Defines edges
+    const rimLight = new THREE.SpotLight(0xddeeff, 4.0);
+    rimLight.position.set(-5, 6, -5);
+    rimLight.lookAt(0, 0, 0);
+    this.scene.add(rimLight);
+
+    // Bottom Fill (Warmth reflection)
+    const fillLight = new THREE.PointLight(0xffeedd, 0.5);
+    fillLight.position.set(0, -5, 0);
+    this.scene.add(fillLight);
 
     this.animate = this.animate.bind(this);
     this.animate();
   }
 
-  public loadInitialModel(data: VoxelData[]) {
-    this.updateMesh(data);
-    this.targetVoxels = data;
-    this.onCountChange(data.length);
-    this.state = AppState.STABLE;
-    this.onStateChange(this.state);
-  }
-
-  public transitionTo(targetData: VoxelData[]) {
-      if (this.state === AppState.REBUILDING) return;
+  public transitionTo(targetData: VoxelData[], showModel: boolean) {
+      // UNLOCKED: Allow updating targets even if animating (for slider responsiveness)
       
-      if (!this.instanceMesh || this.instanceMesh.count === 0) {
-          this.loadInitialModel(targetData);
-          return;
+      if (!this.instanceMesh || this.instanceMesh.count < targetData.length) {
+          this.updateMeshBufferSize(Math.max(targetData.length * 1.5, 10000));
       }
 
       this.targetVoxels = targetData;
-      this.morphProgress = 0;
-      this.state = AppState.REBUILDING;
-      this.onStateChange(this.state);
       
-      const maxCount = Math.max(this.instanceMesh.count, targetData.length);
-      if (maxCount > this.instanceMesh.count) {
-          this.updateMeshBufferSize(maxCount);
+      // Only reset morph progress if we were effectively done or if it's a huge shift
+      // For small shifts (sliders), we just let the LERP catch up in the animate loop
+      if (this.state === AppState.STABLE) {
+          this.morphProgress = 0;
+          this.state = AppState.REBUILDING;
+          this.onStateChange(this.state);
       }
       
       this.onCountChange(targetData.length);
@@ -106,29 +139,30 @@ export class VoxelEngine {
           this.instanceMesh.geometry.dispose();
       }
       
-      // Point Cloud Aesthetic: Small boxes
-      const geometry = new THREE.BoxGeometry(CONFIG.VOXEL_SIZE, CONFIG.VOXEL_SIZE, CONFIG.VOXEL_SIZE);
-      const material = new THREE.MeshStandardMaterial({ 
-          roughness: 0.4, 
+      // Rounded Box for fluid feel
+      const geometry = new THREE.BoxGeometry(CONFIG.VOXEL_SIZE * 0.85, CONFIG.VOXEL_SIZE * 0.85, CONFIG.VOXEL_SIZE * 0.85);
+      
+      this.randomRotations = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        this.randomRotations[i * 3 + 0] = Math.random() * Math.PI;
+        this.randomRotations[i * 3 + 1] = Math.random() * Math.PI;
+        this.randomRotations[i * 3 + 2] = Math.random() * Math.PI;
+      }
+
+      // HIGH-FIDELITY MATERIAL (Glass/Jewel like)
+      const material = new THREE.MeshPhysicalMaterial({ 
+          color: 0xffffff,
+          roughness: 0.1,        // Very smooth
           metalness: 0.1,
-          flatShading: true
+          transmission: 0.0,     // Solid but glossy
+          reflectivity: 0.8,
+          clearcoat: 1.0,        // Wet look
+          clearcoatRoughness: 0.1,
       });
       
       this.instanceMesh = new THREE.InstancedMesh(geometry, material, count);
+      this.instanceMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.scene.add(this.instanceMesh);
-  }
-
-  private updateMesh(data: VoxelData[]) {
-      this.updateMeshBufferSize(data.length);
-      data.forEach((v, i) => {
-          this.dummy.position.set(v.x, v.y, v.z);
-          this.dummy.scale.set(1,1,1);
-          this.dummy.updateMatrix();
-          this.instanceMesh!.setMatrixAt(i, this.dummy.matrix);
-          this.instanceMesh!.setColorAt(i, new THREE.Color(v.color));
-      });
-      this.instanceMesh!.instanceMatrix.needsUpdate = true;
-      if (this.instanceMesh!.instanceColor) this.instanceMesh!.instanceColor.needsUpdate = true;
   }
 
   private animate() {
@@ -136,13 +170,18 @@ export class VoxelEngine {
     this.controls.update();
     this.frameCount++;
 
-    // Gentle breathing animation for the point cloud
-    const time = this.frameCount * 0.01;
+    const time = this.frameCount * 0.005;
+
+    // --- BREATHING EFFECT ---
+    if (this.instanceMesh) {
+        this.instanceMesh.position.y = Math.sin(time * 0.3) * 0.03;
+        this.instanceMesh.rotation.y = Math.sin(time * 0.1) * 0.03; // Gentle yaw
+    }
 
     if (this.instanceMesh) {
-        // If morphing
+        // Transition Logic
         if (this.state === AppState.REBUILDING) {
-            this.morphProgress += 0.015;
+            this.morphProgress += 0.05; // Faster transition for responsiveness
             if (this.morphProgress >= 1) {
                 this.morphProgress = 1;
                 this.state = AppState.STABLE;
@@ -151,72 +190,62 @@ export class VoxelEngine {
         }
 
         const count = this.instanceMesh.count;
-        const isMorphing = this.state === AppState.REBUILDING;
+        const targetLen = this.targetVoxels.length;
 
         for (let i = 0; i < count; i++) {
             this.instanceMesh.getMatrixAt(i, this.dummy.matrix);
             const currentPos = new THREE.Vector3();
             const currentScale = new THREE.Vector3();
-            this.dummy.matrix.decompose(currentPos, new THREE.Quaternion(), currentScale);
+            const currentRot = new THREE.Quaternion();
+            this.dummy.matrix.decompose(currentPos, currentRot, currentScale);
 
-            const target = this.targetVoxels[i];
-
-            if (target) {
-                // Logic: Move towards target
-                // If not morphing, we still do a tiny float
-                let tx = target.x;
-                let ty = target.y;
-                let tz = target.z;
-
-                // Add idle float
-                if (!isMorphing) {
-                    ty += Math.sin(time + tx * 0.5) * 0.05;
-                }
-
-                // Lerp Position
-                currentPos.x += (tx - currentPos.x) * 0.1;
-                currentPos.y += (ty - currentPos.y) * 0.1;
-                currentPos.z += (tz - currentPos.z) * 0.1;
+            if (i < targetLen) {
+                const target = this.targetVoxels[i];
                 
-                // Lerp Scale (Pop in)
-                currentScale.lerp(new THREE.Vector3(1,1,1), 0.1);
-                
-                this.dummy.position.copy(currentPos);
-                this.dummy.scale.copy(currentScale);
-                this.dummy.updateMatrix();
-                this.instanceMesh.setMatrixAt(i, this.dummy.matrix);
+                const breathe = Math.sin(target.y * 3.0 + time * 1.5) * 0.005;
+                const ty = target.y + breathe;
 
-                // Color transition
-                if (isMorphing && this.morphProgress > 0.5) {
-                    this.instanceMesh.setColorAt(i, new THREE.Color(target.color));
-                }
+                // Interpolation: Faster if state is stable (dragging slider), slower if rebuilding
+                const lerpFactor = this.state === AppState.REBUILDING ? 0.1 : 0.25;
+                currentPos.lerp(new THREE.Vector3(target.x, ty, target.z), lerpFactor);
+                
+                // Pop in effect
+                currentScale.lerp(new THREE.Vector3(1,1,1), 0.15);
+
+                // Rotations: Sparkle effect
+                const rotX = this.randomRotations[i * 3 + 0] + (time * 0.2);
+                const rotY = this.randomRotations[i * 3 + 1] + (time * 0.1);
+                const targetRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotX, rotY, 0));
+                currentRot.slerp(targetRot, 0.08);
+
+                const baseColor = new THREE.Color(target.color);
+                this.instanceMesh.setColorAt(i, baseColor);
+
             } else {
-                // Scale down (disappear)
                 currentScale.lerp(new THREE.Vector3(0,0,0), 0.2);
-                this.dummy.scale.copy(currentScale);
-                this.dummy.updateMatrix();
-                this.instanceMesh.setMatrixAt(i, this.dummy.matrix);
             }
+
+            this.dummy.position.copy(currentPos);
+            this.dummy.quaternion.copy(currentRot);
+            this.dummy.scale.copy(currentScale);
+            this.dummy.updateMatrix();
+            this.instanceMesh.setMatrixAt(i, this.dummy.matrix);
         }
+        
         this.instanceMesh.instanceMatrix.needsUpdate = true;
         if (this.instanceMesh.instanceColor) this.instanceMesh.instanceColor.needsUpdate = true;
     }
 
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   public handleResize() {
-      if (this.camera && this.renderer) {
+      if (this.camera && this.renderer && this.composer) {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.composer.setSize(window.innerWidth, window.innerHeight);
       }
-  }
-  
-  public setAutoRotate(enabled: boolean) {
-    if (this.controls) {
-        this.controls.autoRotate = enabled;
-    }
   }
 
   public cleanup() {
